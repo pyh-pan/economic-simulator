@@ -26,6 +26,7 @@ export function createEmergenceWorld({
     distribution: profileDistribution,
   });
   const configuredProductionTypes = productionTypes.length > 0 ? [...productionTypes] : DEFAULT_PRODUCTION_TYPES;
+  validateProductionTypes(configuredProductionTypes, resources);
   const profileIds = profiles.map((profile) => profile.id);
   const agents = profiles.map((profileRecord, index) => {
     const productionType = configuredProductionTypes[index % configuredProductionTypes.length];
@@ -128,6 +129,16 @@ function uniqueResources(resources) {
   }
 
   return unique;
+}
+
+function validateProductionTypes(productionTypes, resources) {
+  const resourceSet = new Set(resources);
+
+  for (const productionType of productionTypes) {
+    if (!resourceSet.has(productionType)) {
+      throw new Error(`Unknown production type: ${productionType}`);
+    }
+  }
 }
 
 function createInventory(resources, extraResources, productionType, inventoryConfig) {

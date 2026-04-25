@@ -5,6 +5,7 @@ export function runEmergenceSimulation(options = {}) {
   const events = world.events;
   const initialTotals = resourceTotals(world);
   const producedTotals = zeroTotals(world.config.resources);
+  const consumedTotals = zeroTotals(world.config.resources);
 
   for (let turn = 1; turn <= world.config.turn_limit; turn += 1) {
     world.turn = turn;
@@ -23,13 +24,16 @@ export function runEmergenceSimulation(options = {}) {
     }
 
     for (const agent of world.agents) {
-      const unmetNeed = consumeNeeds(agent);
+      const needsResult = consumeNeeds(agent, world.config.resources);
+      addTotals(consumedTotals, needsResult.consumedResources);
+      const unmetNeed = needsResult.unmetNeed;
       agent.unmet_need = unmetNeed;
       appendEvent(world, {
         type: "needs_checked",
         turn,
         agent_id: agent.id,
         unmet_need: unmetNeed,
+        consumed_resources: needsResult.consumedResources,
       });
     }
 
@@ -58,7 +62,7 @@ export function runEmergenceSimulation(options = {}) {
   appendEvent(world, { type: "run_finished", turn: world.turn });
 
   const finalTotals = resourceTotals(world);
-  const invariants = checkInvariants(world, initialTotals, producedTotals, finalTotals);
+  const invariants = checkInvariants(world, initialTotals, producedTotals, consumedTotals, finalTotals);
 
   return {
     events,
@@ -73,8 +77,9 @@ function appendEvent(world, event) {
   world.events.push(event);
 }
 
-function consumeNeeds(agent) {
+function consumeNeeds(agent, resources) {
   let unmetNeed = 0;
+  const consumedResources = zeroTotals(resources);
 
   for (const [resource, needed] of Object.entries(agent.needs)) {
     if (needed <= 0) {
@@ -83,12 +88,13 @@ function consumeNeeds(agent) {
 
     if (agent.inventory[resource] > 0) {
       agent.inventory[resource] -= 1;
+      consumedResources[resource] += 1;
     } else {
       unmetNeed += 1;
     }
   }
 
-  return unmetNeed;
+  return { unmetNeed, consumedResources };
 }
 
 function createTurnProposals(world) {
@@ -268,7 +274,7 @@ function updateMarketSignals(world) {
   };
 }
 
-function checkInvariants(world, initialTotals, producedTotals, finalTotals) {
+function checkInvariants(world, initialTotals, producedTotals, consumedTotals, finalTotals) {
   const violations = [];
 
   for (const agent of world.agents) {
@@ -280,13 +286,16 @@ function checkInvariants(world, initialTotals, producedTotals, finalTotals) {
   }
 
   for (const resource of world.config.resources) {
-    const maximum = initialTotals[resource] + producedTotals[resource];
-    if (finalTotals[resource] > maximum) {
+    const expected = initialTotals[resource] + producedTotals[resource];
+    const actual = finalTotals[resource] + consumedTotals[resource];
+
+    if (actual !== expected) {
       violations.push({
-        type: "resource_total_exceeded",
+        type: "resource_total_mismatch",
         resource,
         initial: initialTotals[resource],
         produced: producedTotals[resource],
+        consumed: consumedTotals[resource],
         final: finalTotals[resource],
       });
     }
@@ -311,11 +320,18 @@ function zeroTotals(resources) {
   return Object.fromEntries(resources.map((resource) => [resource, 0]));
 }
 
+function addTotals(target, source) {
+  for (const [resource, quantity] of Object.entries(source)) {
+    target[resource] += quantity;
+  }
+}
+
 function sanitizeWorld(world) {
   return {
     config: structuredClone(world.config),
     turn: world.turn,
     agents: structuredClone(world.agents),
+    marketSignals: structuredClone(world.marketSignals),
   };
 }
 
