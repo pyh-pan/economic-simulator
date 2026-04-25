@@ -1,3 +1,4 @@
+import { buildEmergenceMetrics } from "./metrics.js";
 import { createEmergenceWorld } from "./world.js";
 
 export function runEmergenceSimulation(options = {}) {
@@ -64,13 +65,15 @@ export function runEmergenceSimulation(options = {}) {
   const finalTotals = resourceTotals(world);
   const invariants = checkInvariants(world, initialTotals, producedTotals, consumedTotals, finalTotals);
 
-  return {
+  const result = {
     events,
     initialTotals,
     finalTotals,
     invariants,
     world: sanitizeWorld(world),
   };
+
+  return { ...result, metrics: buildEmergenceMetrics(result) };
 }
 
 function appendEvent(world, event) {
