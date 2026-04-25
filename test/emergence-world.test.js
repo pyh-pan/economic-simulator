@@ -31,3 +31,21 @@ test("visible state excludes global world and hidden experiment targets", () => 
   assert.equal(visible.hiddenGoal, undefined);
   assert.deepEqual(Object.keys(visible.marketSignals.resource_acceptance_counts).sort(), world.config.resources.toSorted());
 });
+
+test("visible state includes proposals involving the agent", () => {
+  const world = createEmergenceWorld({ seed: "proposal-visible" });
+  world.proposals.p1 = { proposal_id: "p1", from_agent: "agent_01", to_agent: "agent_02" };
+
+  assert.deepEqual(getEmergenceVisibleState(world, "agent_01").proposals.p1, world.proposals.p1);
+  assert.deepEqual(getEmergenceVisibleState(world, "agent_02").proposals.p1, world.proposals.p1);
+  assert.equal(getEmergenceVisibleState(world, "agent_03").proposals.p1, undefined);
+});
+
+test("visible market signals are cloned from world state", () => {
+  const world = createEmergenceWorld({ seed: "market-signal-clone" });
+  const visible = getEmergenceVisibleState(world, "agent_01");
+
+  visible.marketSignals.resource_acceptance_counts.fish = 12;
+
+  assert.equal(world.marketSignals.resource_acceptance_counts.fish, 0);
+});

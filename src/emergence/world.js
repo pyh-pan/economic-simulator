@@ -177,6 +177,8 @@ function proposalInvolvesAgent(proposal, agentId) {
     proposal.proposerId,
     proposal.responder_id,
     proposal.responderId,
+    proposal.from_agent,
+    proposal.to_agent,
     proposal.from,
     proposal.to,
   ].includes(agentId);
