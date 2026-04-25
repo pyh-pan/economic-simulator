@@ -61,13 +61,16 @@ const DEFAULT_DISTRIBUTION = Object.fromEntries(Object.keys(ARCHETYPES).map((arc
 export function normalizeDistribution(distribution) {
   const entries = Object.entries(distribution ?? {});
 
-  for (const [archetype] of entries) {
+  for (const [archetype, weight] of entries) {
     if (!(archetype in ARCHETYPES)) {
       throw new Error(`Unknown archetype: ${archetype}`);
     }
+    if (!Number.isFinite(weight) || weight < 0) {
+      throw new Error("Profile distribution weights must be non-negative finite numbers");
+    }
   }
 
-  const weights = entries.filter(([, weight]) => Number.isFinite(weight) && weight > 0);
+  const weights = entries.filter(([, weight]) => weight > 0);
   const total = weights.reduce((sum, [, weight]) => sum + weight, 0);
 
   if (total <= 0) {

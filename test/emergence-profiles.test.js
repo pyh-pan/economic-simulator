@@ -29,8 +29,15 @@ test("profile distributions normalize and generate deterministic agents", () => 
 
 test("profile distributions reject invalid weights and unknown archetypes", () => {
   assert.throws(() => normalizeDistribution({}), /Profile distribution must have positive weight/);
-  assert.throws(() => normalizeDistribution({ steward: 0, trader: -1, hoarder: NaN }), /Profile distribution must have positive weight/);
+  assert.throws(() => normalizeDistribution({ steward: 0, trader: -1, hoarder: NaN }), /Profile distribution weights must be non-negative finite numbers/);
+  assert.throws(() => normalizeDistribution({ steward: 1, trader: -1 }), /Profile distribution weights must be non-negative finite numbers/);
+  assert.throws(() => normalizeDistribution({ steward: 1, trader: NaN }), /Profile distribution weights must be non-negative finite numbers/);
+  assert.throws(() => normalizeDistribution({ steward: 1, trader: Infinity }), /Profile distribution weights must be non-negative finite numbers/);
   assert.throws(() => normalizeDistribution({ steward: 1, unknown: 1 }), /Unknown archetype: unknown/);
+});
+
+test("profile distributions allow zero weights when positive weights exist", () => {
+  assert.deepEqual(normalizeDistribution({ steward: 2, trader: 0, hoarder: 2 }), { steward: 0.5, hoarder: 0.5 });
 });
 
 test("agent profile generation rejects invalid counts", () => {
