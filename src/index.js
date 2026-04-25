@@ -1,6 +1,7 @@
 const RESOURCES = ["fish", "water", "fruit", "animals", "wood"];
 
 export { createLongCatAgent, createOpenAiCompatibleAgent } from "./agents.js";
+export * from "./emergence/index.js";
 export { buildTradeNetwork, compareTrustRuns, scanTrustLevels } from "./experiments.js";
 export { createRunStore, serializeRunRecord } from "./storage.js";
 
