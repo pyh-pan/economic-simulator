@@ -2,7 +2,14 @@ import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { advanceSimulationTurn, createLongCatAgent, createSimulationSession, getSimulationSnapshot } from "./src/index.js";
+import {
+  advanceSimulationTurn,
+  buildEmergenceReport,
+  createLongCatAgent,
+  createSimulationSession,
+  getSimulationSnapshot,
+  runEmergenceExperimentSet,
+} from "./src/index.js";
 
 loadEnv();
 
@@ -14,6 +21,20 @@ export function createApiApp({ useVite = process.env.NODE_ENV !== "test" } = {})
 
   const server = createServer(async (request, response) => {
     try {
+      if (request.url === "/api/emergence/runs" && request.method === "POST") {
+        const body = await readJson(request);
+        const experiment = runEmergenceExperimentSet({
+          seeds: normalizeArray(body.seeds, ["seed-1", "seed-2", "seed-3"]),
+          turnLimit: normalizeNumber(body.turnLimit, 30),
+          extraResources: normalizeArray(body.extraResources, []),
+          profileDistribution: body.profileDistribution,
+          randomEncounterRate: normalizeNumber(body.randomEncounterRate, 0.45),
+          searchBudget: normalizeNumber(body.searchBudget, 2),
+          marketSignalWindow: normalizeNumber(body.marketSignalWindow, 8),
+        });
+        return sendJson(response, 200, { ...experiment, report: buildEmergenceReport(experiment) });
+      }
+
       if (request.url === "/api/simulations" && request.method === "POST") {
         const body = await readJson(request);
         const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -136,6 +157,18 @@ async function readJson(request) {
 function sendJson(response, status, body) {
   response.writeHead(status, { "content-type": "application/json" });
   response.end(JSON.stringify(body));
+}
+
+function normalizeArray(value, defaultValue) {
+  if (!Array.isArray(value) || value.length === 0) {
+    return [...defaultValue];
+  }
+  return value.map(String);
+}
+
+function normalizeNumber(value, defaultValue) {
+  const normalized = Number(value ?? defaultValue);
+  return Number.isFinite(normalized) ? normalized : defaultValue;
 }
 
 function loadEnv(file = ".env") {
