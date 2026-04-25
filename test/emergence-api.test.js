@@ -45,6 +45,66 @@ test("emergence API applies conservative defaults and stringifies array inputs",
   }
 });
 
+test("emergence API stringifies and trims normal mixed extra resources", async () => {
+  const app = createApiApp({ useVite: false });
+  const server = await app.listen(0);
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+  try {
+    const result = await postJson(`${baseUrl}/api/emergence/runs`, {
+      seeds: ["mixed-extra"],
+      turnLimit: 1,
+      extraResources: [" beads ", 42, true],
+    });
+    const resources = result.runs[0].world.config.resources;
+
+    assert.equal(resources.includes("beads"), true);
+    assert.equal(resources.includes("42"), true);
+    assert.equal(resources.includes("true"), true);
+    assert.equal(resources.includes(" beads "), false);
+  } finally {
+    await app.close();
+  }
+});
+
+test("emergence API rejects too many extra resources before running", async () => {
+  const app = createApiApp({ useVite: false });
+  const server = await app.listen(0);
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+  try {
+    const response = await postJsonExpectingClientError(`${baseUrl}/api/emergence/runs`, {
+      seeds: ["too-many-extra"],
+      turnLimit: 1,
+      extraResources: Array.from({ length: 11 }, (_, index) => `resource-${index}`),
+    });
+
+    assert.equal(response.status, 413);
+    assert.match(response.body.error, /extraResources/i);
+  } finally {
+    await app.close();
+  }
+});
+
+test("emergence API rejects overlong extra resource names", async () => {
+  const app = createApiApp({ useVite: false });
+  const server = await app.listen(0);
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+  try {
+    const response = await postJsonExpectingClientError(`${baseUrl}/api/emergence/runs`, {
+      seeds: ["overlong-extra"],
+      turnLimit: 1,
+      extraResources: ["x".repeat(33)],
+    });
+
+    assert.equal(response.status, 400);
+    assert.match(response.body.error, /extraResources/i);
+  } finally {
+    await app.close();
+  }
+});
+
 test("emergence API rejects excessive turn limits before running", async () => {
   const app = createApiApp({ useVite: false });
   const server = await app.listen(0);

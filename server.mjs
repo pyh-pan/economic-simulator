@@ -16,6 +16,8 @@ loadEnv();
 const TRIBES = ["fishers", "waterkeepers", "fruiters", "herders", "woodcutters"];
 const EMERGENCE_LIMITS = {
   maxSeeds: 10,
+  maxExtraResources: 10,
+  maxResourceNameLength: 32,
   turnLimit: { min: 0, max: 200 },
   randomEncounterRate: { min: 0, max: 2 },
   searchBudget: { min: 1, max: 50 },
@@ -196,6 +198,10 @@ function normalizeEmergenceOptions(body) {
   if (seeds.length > EMERGENCE_LIMITS.maxSeeds) {
     return { ok: false, status: 413, error: `seeds must contain at most ${EMERGENCE_LIMITS.maxSeeds} entries` };
   }
+  const extraResourcesResult = normalizeExtraResources(body.extraResources);
+  if (!extraResourcesResult.ok) {
+    return { ok: false, status: extraResourcesResult.status, error: extraResourcesResult.error };
+  }
 
   const numericOptions = [
     ["turnLimit", 30, EMERGENCE_LIMITS.turnLimit],
@@ -205,7 +211,7 @@ function normalizeEmergenceOptions(body) {
   ];
   const options = {
     seeds,
-    extraResources: normalizeArray(body.extraResources, []),
+    extraResources: extraResourcesResult.resources,
   };
 
   for (const [name, defaultValue, range] of numericOptions) {
@@ -217,6 +223,28 @@ function normalizeEmergenceOptions(body) {
   }
 
   return { ok: true, options };
+}
+
+function normalizeExtraResources(value) {
+  const resources = normalizeArray(value, []).map((resource) => resource.trim());
+  if (resources.length > EMERGENCE_LIMITS.maxExtraResources) {
+    return {
+      ok: false,
+      status: 413,
+      error: `extraResources must contain at most ${EMERGENCE_LIMITS.maxExtraResources} entries`,
+    };
+  }
+  if (resources.some((resource) => resource.length === 0)) {
+    return { ok: false, status: 400, error: "extraResources entries must not be blank" };
+  }
+  if (resources.some((resource) => resource.length > EMERGENCE_LIMITS.maxResourceNameLength)) {
+    return {
+      ok: false,
+      status: 400,
+      error: `extraResources entries must be ${EMERGENCE_LIMITS.maxResourceNameLength} characters or fewer`,
+    };
+  }
+  return { ok: true, resources };
 }
 
 function normalizeNumberInRange(value, defaultValue, { min, max }) {
