@@ -101,6 +101,10 @@ function consumeNeeds(agent, resources) {
 }
 
 function createTurnProposals(world) {
+  if (world.agents.length < 2) {
+    return [];
+  }
+
   const attempts = Math.max(1, Math.round(world.agents.length * world.config.random_encounter_rate));
   const proposals = [];
 

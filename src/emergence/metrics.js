@@ -37,7 +37,7 @@ function buildMacroMetrics({ run, agents, proposalEvents, acceptedProposals, rej
   return {
     trade_completion_rate: rate(acceptedProposals.length, proposalEvents.length),
     unmet_need_rate: unmetNeed.rate,
-    average_search_cost: rate(rejectedProposals.length, Math.max(1, agents.length)),
+    average_search_cost: average(rejectedProposals.length, agents.length),
     network_density: networkDensity,
     network_centralization: buildNetworkCentralization(agents, centralityByAgent),
     resource_inequality: buildAverageResourceInequality(run, agents),
@@ -210,6 +210,14 @@ function rate(numerator, denominator) {
   }
 
   return round(clamp(numerator / denominator));
+}
+
+function average(total, count) {
+  if (!Number.isFinite(total) || !Number.isFinite(count) || count <= 0) {
+    return 0;
+  }
+
+  return round(total / count);
 }
 
 function clamp(value) {
