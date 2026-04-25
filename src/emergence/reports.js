@@ -10,13 +10,13 @@ export function runEmergenceExperimentSet({ seeds = ["seed-1", "seed-2", "seed-3
   return {
     seeds: normalizedSeeds,
     runs,
-    summary: summarizeRuns(runs),
+    summary: summarizeEmergenceRuns(runs),
   };
 }
 
-export function buildEmergenceReport(experiment = { runs: [], summary: summarizeRuns([]) }) {
+export function buildEmergenceReport(experiment = { runs: [], summary: summarizeEmergenceRuns([]) }) {
   const runs = experiment.runs ?? [];
-  const summary = experiment.summary ?? summarizeRuns(runs);
+  const summary = experiment.summary ?? summarizeEmergenceRuns(runs);
   const findings = [];
 
   if (runs.length === 0) {
@@ -32,7 +32,8 @@ export function buildEmergenceReport(experiment = { runs: [], summary: summarize
   }
 
   for (const [resource, resourceSummary] of Object.entries(summary.resources ?? {})) {
-    if (resourceSummary.average_acceptance_breadth <= 0) {
+    const averageAcceptanceBreadth = finite(resourceSummary.average_acceptance_breadth);
+    if (averageAcceptanceBreadth <= 0) {
       continue;
     }
 
@@ -41,9 +42,9 @@ export function buildEmergenceReport(experiment = { runs: [], summary: summarize
       resource,
       confidence: confidenceFor(resourceSummary.seed_presence_rate),
       evidence: {
-        average_acceptance_breadth: resourceSummary.average_acceptance_breadth,
-        average_pass_through_rate: resourceSummary.average_pass_through_rate,
-        seed_presence_rate: resourceSummary.seed_presence_rate,
+        average_acceptance_breadth: averageAcceptanceBreadth,
+        average_pass_through_rate: finite(resourceSummary.average_pass_through_rate),
+        seed_presence_rate: finite(resourceSummary.seed_presence_rate),
       },
       linked_events: linkedEventsForResource(runs, resource).slice(0, LINKED_EVENT_LIMIT),
       alternative_explanations: [
@@ -66,7 +67,7 @@ export function buildEmergenceReport(experiment = { runs: [], summary: summarize
   return { summary, findings };
 }
 
-function summarizeRuns(runs) {
+export function summarizeEmergenceRuns(runs) {
   const resources = resourcesForRuns(runs);
 
   return {
@@ -74,20 +75,24 @@ function summarizeRuns(runs) {
     average_trade_completion_rate: average(runs.map((run) => run.metrics?.macro?.trade_completion_rate ?? 0)),
     average_unmet_need_rate: average(runs.map((run) => run.metrics?.macro?.unmet_need_rate ?? 0)),
     resources: Object.fromEntries(
-      resources.map((resource) => [
-        resource,
-        {
-          average_acceptance_breadth: average(
-            runs.map((run) => run.metrics?.resources?.[resource]?.acceptance_breadth ?? 0),
-          ),
-          average_pass_through_rate: average(
-            runs.map((run) => run.metrics?.resources?.[resource]?.pass_through_rate ?? 0),
-          ),
-          seed_presence_rate: average(
-            runs.map((run) => ((run.metrics?.resources?.[resource]?.acceptance_breadth ?? 0) > 0 ? 1 : 0)),
-          ),
-        },
-      ]),
+      resources.map((resource) => {
+        const configuredRuns = runs.filter((run) => resourceIsConfigured(run, resource));
+
+        return [
+          resource,
+          {
+            average_acceptance_breadth: average(
+              configuredRuns.map((run) => run.metrics?.resources?.[resource]?.acceptance_breadth ?? 0),
+            ),
+            average_pass_through_rate: average(
+              configuredRuns.map((run) => run.metrics?.resources?.[resource]?.pass_through_rate ?? 0),
+            ),
+            seed_presence_rate: average(
+              configuredRuns.map((run) => ((run.metrics?.resources?.[resource]?.acceptance_breadth ?? 0) > 0 ? 1 : 0)),
+            ),
+          },
+        ];
+      }),
     ),
   };
 }
@@ -102,6 +107,10 @@ function resourcesForRuns(runs) {
   }
 
   return [...resources];
+}
+
+function resourceIsConfigured(run, resource) {
+  return (run.world?.config?.resources ?? []).includes(resource);
 }
 
 function linkedEventsForResource(runs, resource) {

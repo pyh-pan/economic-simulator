@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { buildEmergenceReport, runEmergenceExperimentSet } from "../src/index.js";
+import { summarizeEmergenceRuns } from "../src/emergence/reports.js";
 
 test("experiment set runs multiple deterministic seeds", () => {
   const first = runEmergenceExperimentSet({ seeds: ["a", "b"], turnLimit: 8, extraResources: ["beads"] });
@@ -99,6 +100,53 @@ test("custom resources are summarized uniformly without named-resource requireme
   assert.deepEqual(tokensKeys, beadsKeys);
 });
 
+test("resource summaries only average runs where the resource is configured", () => {
+  const summary = summarizeEmergenceRuns([
+    createReportRun({
+      seed: "mixed-a",
+      resources: ["fish", "ore"],
+      resourceMetrics: {
+        fish: { acceptance_breadth: 0.6, pass_through_rate: 0.2 },
+        ore: { acceptance_breadth: 0.4, pass_through_rate: 0.1 },
+      },
+    }),
+    createReportRun({
+      seed: "mixed-b",
+      resources: ["fish"],
+      resourceMetrics: {
+        fish: { acceptance_breadth: 0.8, pass_through_rate: 0.4 },
+      },
+    }),
+  ]);
+
+  assert.equal(summary.resources.fish.average_acceptance_breadth, 0.7);
+  assert.equal(summary.resources.fish.average_pass_through_rate, 0.3);
+  assert.equal(summary.resources.fish.seed_presence_rate, 1);
+  assert.equal(summary.resources.ore.average_acceptance_breadth, 0.4);
+  assert.equal(summary.resources.ore.average_pass_through_rate, 0.1);
+  assert.equal(summary.resources.ore.seed_presence_rate, 1);
+});
+
+test("partial resource summaries do not create positive findings", () => {
+  const report = buildEmergenceReport({
+    runs: [createReportRun({ seed: "partial", resources: ["fish"], resourceMetrics: {} })],
+    summary: {
+      run_count: 1,
+      average_trade_completion_rate: 0,
+      average_unmet_need_rate: 0,
+      resources: {
+        fish: {
+          average_pass_through_rate: 0.5,
+          seed_presence_rate: 1,
+        },
+      },
+    },
+  });
+
+  assert.equal(report.findings.some((finding) => finding.resource === "fish"), false);
+  assert.equal(report.findings[0].title, "No strong exchange-bridge pattern appeared");
+});
+
 test("empty experiment set returns finite summary and explanatory finding", () => {
   const experiment = runEmergenceExperimentSet({ seeds: [] });
   const report = buildEmergenceReport(experiment);
@@ -111,3 +159,17 @@ test("empty experiment set returns finite summary and explanatory finding", () =
   assert.equal(report.findings[0].evidence.runs, 0);
   assert.equal(report.findings[0].title.includes("No runs were available"), true);
 });
+
+function createReportRun({ seed, resources, resourceMetrics }) {
+  return {
+    world: { config: { seed, resources } },
+    events: [],
+    metrics: {
+      macro: {
+        trade_completion_rate: 0,
+        unmet_need_rate: 0,
+      },
+      resources: resourceMetrics,
+    },
+  };
+}
