@@ -25,6 +25,14 @@ page.on("console", (message) => {
 
 await page.goto(baseUrl, { waitUntil: "networkidle" });
 const initialTabHeights = await tabHeights(page);
+const emergenceTab = page.getByRole("button", { name: /Emergence/ });
+await emergenceTab.click();
+await page.getByRole("heading", { name: "Emergence" }).waitFor();
+const emergencePlaceholderTabHeights = await tabHeights(page);
+await page.getByRole("button", { name: /Run emergence/ }).click();
+await page.waitForFunction(() => document.body.innerText.includes("Findings"));
+const emergenceResultTabHeights = await tabHeights(page);
+await page.getByLabel("Views").getByRole("button", { name: /^Run$/ }).click();
 await page.locator(".control-rail .primary").click();
 await page.getByText("Ready to run").waitFor({ state: "detached" });
 await page.getByRole("button", { name: /Next turn/ }).click();
@@ -35,11 +43,12 @@ await page.screenshot({ path: screenshotPath, fullPage: true });
 const result = await page.evaluate(() => ({
   title: document.title,
   rootChildren: document.querySelector("#root")?.children.length ?? 0,
-  hasShell: document.body.innerText.includes("Economic Simulator"),
+  hasAppTitle: document.body.innerText.includes("Economic Simulator"),
   hasMetrics: document.body.innerText.includes("COMPLETION"),
   hasTribes: document.body.innerText.includes("Current inventories"),
   hasProposal: document.body.innerText.includes("Current proposal"),
   hasDecision: document.body.innerText.toLowerCase().includes("accept trade") || document.body.innerText.toLowerCase().includes("reject trade"),
+  hasEmergence: document.body.innerText.includes("Emergence"),
 }));
 
 await browser.close();
@@ -48,12 +57,23 @@ if (pageErrors.length > 0 || consoleProblems.length > 0) {
   throw new Error(JSON.stringify({ pageErrors, consoleProblems }, null, 2));
 }
 
-if (!result.hasShell || !result.hasMetrics || !result.hasTribes || !result.hasProposal || !result.hasDecision || result.rootChildren < 1) {
+if (!result.hasAppTitle || !result.hasMetrics || !result.hasTribes || !result.hasProposal || !result.hasDecision || !result.hasEmergence || result.rootChildren < 1) {
   throw new Error(`Browser smoke failed: ${JSON.stringify(result)}`);
 }
 
-if ([...initialTabHeights, ...runningTabHeights].some((height) => height < 36 || height > 52)) {
-  throw new Error(`Tab buttons should keep a stable compact height: ${JSON.stringify({ initialTabHeights, runningTabHeights })}`);
+const measuredTabHeights = [
+  ...initialTabHeights,
+  ...emergencePlaceholderTabHeights,
+  ...emergenceResultTabHeights,
+  ...runningTabHeights,
+];
+if (measuredTabHeights.some((height) => height < 36 || height > 44)) {
+  throw new Error(`Tab buttons should keep a stable compact height: ${JSON.stringify({ initialTabHeights, emergencePlaceholderTabHeights, emergenceResultTabHeights, runningTabHeights })}`);
+}
+
+const uniqueTabHeights = new Set(measuredTabHeights);
+if (uniqueTabHeights.size !== 1) {
+  throw new Error(`Tab buttons should not resize across views: ${JSON.stringify({ initialTabHeights, emergencePlaceholderTabHeights, emergenceResultTabHeights, runningTabHeights })}`);
 }
 
 console.log(`Browser smoke passed: ${baseUrl}`);

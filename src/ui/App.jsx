@@ -13,11 +13,12 @@ export function App() {
   const [trust, setTrust] = useState(0.65);
   const [turnLimit, setTurnLimit] = useState(12);
   const [enableReputation, setEnableReputation] = useState(true);
-  const [enableShells, setEnableShells] = useState(false);
+  const [enableExtraResource, setEnableExtraResource] = useState(false);
   const [agentProvider, setAgentProvider] = useState("local");
   const [view, setView] = useState("run");
   const [sessionId, setSessionId] = useState(null);
   const [snapshot, setSnapshot] = useState(null);
+  const [emergenceResult, setEmergenceResult] = useState(null);
   const [autoRun, setAutoRun] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -29,7 +30,7 @@ export function App() {
     globalTrust: trust,
     proposalStrategy: "auto",
     enableReputation,
-    protoCurrencyCandidates: enableShells ? ["shells"] : [],
+    protoCurrencyCandidates: enableExtraResource ? ["shells"] : [],
   };
   const comparison = compareTrustRuns({ ...options, lowTrust: 0.15, highTrust: trust });
   const scan = scanTrustLevels({ ...options, trustLevels: [0, 0.25, 0.5, 0.75, 1] });
@@ -55,11 +56,29 @@ export function App() {
         trust,
         agentProvider,
         enableReputation,
-        enableShells,
+        enableShells: enableExtraResource,
       });
       setSessionId(data.id);
       setSnapshot(data.snapshot);
       setView("run");
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const runEmergence = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const data = await postJson("/api/emergence/runs", {
+        seeds: [seed, `${seed}-b`, `${seed}-c`],
+        turnLimit,
+        extraResources: enableExtraResource ? ["beads"] : [],
+      });
+      setEmergenceResult(data);
+      setView("emergence");
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -137,10 +156,11 @@ export function App() {
 
         <div className="checks">
           <label><input type="checkbox" checked={enableReputation} onChange={(event) => setEnableReputation(event.target.checked)} /> Reputation</label>
-          <label><input type="checkbox" checked={enableShells} onChange={(event) => setEnableShells(event.target.checked)} /> Shells</label>
+          <label><input type="checkbox" checked={enableExtraResource} onChange={(event) => setEnableExtraResource(event.target.checked)} /> Extra resource</label>
         </div>
 
         <button className="primary" onClick={runSession} disabled={loading}><Icon name="play" /> Run</button>
+        <button className="secondary" onClick={runEmergence} disabled={loading}><Icon name="compare" /> Run emergence</button>
         <button className="secondary" onClick={stepSession} disabled={!sessionId || loading || snapshot?.finished}><Icon name="step" /> Next turn</button>
         <button className="secondary" onClick={() => setAutoRun((value) => !value)} disabled={!sessionId || loading || snapshot?.finished}><Icon name={autoRun ? "pause" : "auto"} /> {autoRun ? "Pause" : "Auto"}</button>
         <button className="secondary" onClick={saveRun} disabled={!snapshot}><Icon name="save" /> Save</button>
@@ -153,11 +173,13 @@ export function App() {
           <button className={view === "run" ? "active" : ""} onClick={() => setView("run")}><Icon name="activity" /> Run</button>
           <button className={view === "compare" ? "active" : ""} onClick={() => setView("compare")}><Icon name="compare" /> Compare</button>
           <button className={view === "saved" ? "active" : ""} onClick={() => setView("saved")}><Icon name="database" /> Saved</button>
+          <button className={view === "emergence" ? "active" : ""} onClick={() => setView("emergence")}><Icon name="activity" /> Emergence</button>
         </nav>
 
         {view === "run" && <RunView snapshot={snapshot} loading={loading} autoRun={autoRun} />}
         {view === "compare" && <CompareView comparison={comparison} scan={scan} />}
         {view === "saved" && <SavedView records={savedRuns} />}
+        {view === "emergence" && <EmergenceView result={emergenceResult} />}
       </section>
     </main>
   );
@@ -234,7 +256,7 @@ function ProposalCard({ proposal }) {
     <article className="proposal-card">
       <span>{proposal.proposal_id}</span>
       <strong>{proposal.from_tribe} asks {proposal.to_tribe}</strong>
-      <p>{proposal.offered_quantity} {proposal.offered_resource} for {proposal.requested_quantity} {proposal.requested_resource}</p>
+      <p>{proposal.offered_quantity} {formatResourceName(proposal.offered_resource)} for {proposal.requested_quantity} {formatResourceName(proposal.requested_resource)}</p>
     </article>
   );
 }
@@ -246,7 +268,7 @@ function DecisionCard({ decision }) {
   return (
     <article className={`decision-card ${decision.type === "accept_trade" ? "accepted" : "rejected"}`}>
       <span>{decision.type.replaceAll("_", " ")}</span>
-      <p>{decision.reason}</p>
+      <p>{formatVisibleText(decision.reason)}</p>
     </article>
   );
 }
@@ -269,9 +291,9 @@ function Metric({ label, value }) {
 function TribeCard({ tribe, resources }) {
   return (
     <article className="tribe-card">
-      <h3>{tribe.tribe_id} / {tribe.dominant_resource}</h3>
+      <h3>{tribe.tribe_id} / {formatResourceName(tribe.dominant_resource)}</h3>
       <div className="resource-list">
-        {resources.map((resource) => <span key={resource}>{resource}: {tribe.inventory[resource] ?? 0}</span>)}
+        {resources.map((resource) => <span key={resource}>{formatResourceName(resource)}: {tribe.inventory[resource] ?? 0}</span>)}
       </div>
       {tribe.reputation ? <p className="reputation">{formatReputation(tribe.reputation)}</p> : null}
     </article>
@@ -291,6 +313,40 @@ function CompareView({ comparison, scan }) {
   );
 }
 
+function EmergenceView({ result }) {
+  if (!result) {
+    return (
+      <section className="panel placeholder-panel">
+        <h2>Emergence</h2>
+        <p>Run a multi-seed experiment to compare macro outcomes, resource-level bridge signals, and evidence-linked findings.</p>
+      </section>
+    );
+  }
+
+  return (
+    <div className="compare-layout emergence-layout">
+      <article className="panel compare-card">
+        <h2>Runs</h2>
+        <p className="huge">{result.runs.length}</p>
+      </article>
+      <article className="panel compare-card">
+        <h2>Completion</h2>
+        <p className="huge">{Math.round(result.summary.average_trade_completion_rate * 100)}%</p>
+      </article>
+      <section className="panel scan-panel">
+        <h2>Findings</h2>
+        {result.report.findings.map((finding, index) => (
+          <article className="saved-card" key={`${finding.title}-${index}`}>
+            <h2>{formatVisibleText(finding.title)}</h2>
+            <p>Confidence: {formatConfidence(finding.confidence)}</p>
+            <p>{formatEvidence(finding.evidence)}</p>
+          </article>
+        ))}
+      </section>
+    </div>
+  );
+}
+
 function SavedView({ records }) {
   return (
     <section className="panel">
@@ -301,10 +357,10 @@ function SavedView({ records }) {
 }
 
 function describeEvent(event) {
-  if (event.type === "proposal_created") return `${event.from_tribe} offered ${event.offered_quantity} ${event.offered_resource} to ${event.to_tribe} for ${event.requested_quantity} ${event.requested_resource}.`;
-  if (event.type === "proposal_accepted") return `Accepted: ${event.reason}`;
-  if (event.type === "proposal_rejected") return `Rejected: ${event.reason}`;
-  if (event.type === "proposal_invalid") return `Invalid proposal: ${event.reason}`;
+  if (event.type === "proposal_created") return `${event.from_tribe} offered ${event.offered_quantity} ${formatResourceName(event.offered_resource)} to ${event.to_tribe} for ${event.requested_quantity} ${formatResourceName(event.requested_resource)}.`;
+  if (event.type === "proposal_accepted") return `Accepted: ${formatVisibleText(event.reason)}`;
+  if (event.type === "proposal_rejected") return `Rejected: ${formatVisibleText(event.reason)}`;
+  if (event.type === "proposal_invalid") return `Invalid proposal: ${formatVisibleText(event.reason)}`;
   if (event.type === "trade_settled") return "Trade settled.";
   if (event.type === "run_finished") return "Run finished.";
   return event.type.replaceAll("_", " ");
@@ -315,6 +371,24 @@ function formatReputation(reputation) {
     .filter(([, score]) => score !== 0)
     .map(([tribe, score]) => `${tribe}: ${score > 0 ? "+" : ""}${score}`)
     .join(" · ") || "No local reputation changes";
+}
+
+function formatResourceName(resource) {
+  return resource === "shells" || resource === "beads" ? "extra resource" : resource;
+}
+
+function formatEvidence(evidence) {
+  return Object.entries(evidence)
+    .map(([key, value]) => `${key}: ${typeof value === "number" ? value.toFixed(2) : formatVisibleText(String(value))}`)
+    .join(" · ");
+}
+
+function formatConfidence(confidence) {
+  return confidence === "medium" ? "moderate" : confidence;
+}
+
+function formatVisibleText(text) {
+  return text.replaceAll("shells", "extra resource").replaceAll("beads", "extra resource");
 }
 
 async function postJson(url, body) {
