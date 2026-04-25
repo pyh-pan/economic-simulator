@@ -59,7 +59,15 @@ export const ARCHETYPES = {
 const DEFAULT_DISTRIBUTION = Object.fromEntries(Object.keys(ARCHETYPES).map((archetype) => [archetype, 1]));
 
 export function normalizeDistribution(distribution) {
-  const weights = Object.entries(distribution ?? {}).filter(([, weight]) => Number.isFinite(weight) && weight > 0);
+  const entries = Object.entries(distribution ?? {});
+
+  for (const [archetype] of entries) {
+    if (!(archetype in ARCHETYPES)) {
+      throw new Error(`Unknown archetype: ${archetype}`);
+    }
+  }
+
+  const weights = entries.filter(([, weight]) => Number.isFinite(weight) && weight > 0);
   const total = weights.reduce((sum, [, weight]) => sum + weight, 0);
 
   if (total <= 0) {
@@ -70,6 +78,10 @@ export function normalizeDistribution(distribution) {
 }
 
 export function generateAgentProfiles({ seed = "default", count = 15, distribution = DEFAULT_DISTRIBUTION } = {}) {
+  if (!Number.isInteger(count) || count < 0) {
+    throw new Error("Agent count must be a non-negative integer");
+  }
+
   const normalizedDistribution = normalizeDistribution(distribution);
   const archetypes = Object.entries(normalizedDistribution);
   const rng = createRng(seed);
