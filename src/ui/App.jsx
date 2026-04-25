@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   buildTradeNetwork,
   compareTrustRuns,
@@ -23,6 +23,7 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [savedRuns, setSavedRuns] = useState(() => store.list());
+  const tabsRef = useRef(null);
 
   const options = {
     seed,
@@ -44,6 +45,13 @@ export function App() {
     }, 900);
     return () => window.clearTimeout(timer);
   }, [autoRun, loading, sessionId, snapshot?.turn, snapshot?.finished]);
+
+  useEffect(() => {
+    tabsRef.current?.querySelector("button.active")?.scrollIntoView({
+      block: "nearest",
+      inline: "nearest",
+    });
+  }, [view]);
 
   const runSession = async () => {
     setLoading(true);
@@ -69,6 +77,7 @@ export function App() {
   };
 
   const runEmergence = async () => {
+    setAutoRun(false);
     setLoading(true);
     setError("");
     try {
@@ -169,7 +178,7 @@ export function App() {
       </aside>
 
       <section className="workspace">
-        <nav className="tabs" aria-label="Views">
+        <nav className="tabs" aria-label="Views" ref={tabsRef}>
           <button className={view === "run" ? "active" : ""} onClick={() => setView("run")}><Icon name="activity" /> Run</button>
           <button className={view === "compare" ? "active" : ""} onClick={() => setView("compare")}><Icon name="compare" /> Compare</button>
           <button className={view === "saved" ? "active" : ""} onClick={() => setView("saved")}><Icon name="database" /> Saved</button>
