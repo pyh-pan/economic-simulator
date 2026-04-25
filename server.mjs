@@ -14,6 +14,13 @@ import {
 loadEnv();
 
 const TRIBES = ["fishers", "waterkeepers", "fruiters", "herders", "woodcutters"];
+const EMERGENCE_LIMITS = {
+  maxSeeds: 10,
+  turnLimit: { min: 0, max: 200 },
+  randomEncounterRate: { min: 0, max: 2 },
+  searchBudget: { min: 1, max: 50 },
+  marketSignalWindow: { min: 1, max: 100 },
+};
 
 export function createApiApp({ useVite = process.env.NODE_ENV !== "test" } = {}) {
   const sessions = new Map();
@@ -22,15 +29,18 @@ export function createApiApp({ useVite = process.env.NODE_ENV !== "test" } = {})
   const server = createServer(async (request, response) => {
     try {
       if (request.url === "/api/emergence/runs" && request.method === "POST") {
-        const body = await readJson(request);
+        const bodyResult = await readEmergenceBody(request);
+        if (!bodyResult.ok) {
+          return sendJson(response, 400, { error: bodyResult.error });
+        }
+        const body = bodyResult.body;
+        const optionsResult = normalizeEmergenceOptions(body);
+        if (!optionsResult.ok) {
+          return sendJson(response, optionsResult.status, { error: optionsResult.error });
+        }
         const experiment = runEmergenceExperimentSet({
-          seeds: normalizeArray(body.seeds, ["seed-1", "seed-2", "seed-3"]),
-          turnLimit: normalizeNumber(body.turnLimit, 30),
-          extraResources: normalizeArray(body.extraResources, []),
+          ...optionsResult.options,
           profileDistribution: body.profileDistribution,
-          randomEncounterRate: normalizeNumber(body.randomEncounterRate, 0.45),
-          searchBudget: normalizeNumber(body.searchBudget, 2),
-          marketSignalWindow: normalizeNumber(body.marketSignalWindow, 8),
         });
         return sendJson(response, 200, { ...experiment, report: buildEmergenceReport(experiment) });
       }
@@ -166,9 +176,59 @@ function normalizeArray(value, defaultValue) {
   return value.map(String);
 }
 
-function normalizeNumber(value, defaultValue) {
+async function readEmergenceBody(request) {
+  let body;
+  try {
+    body = await readJson(request);
+  } catch {
+    return { ok: false, error: "Malformed JSON body" };
+  }
+
+  if (!isPlainObject(body)) {
+    return { ok: false, error: "JSON body must be an object" };
+  }
+
+  return { ok: true, body };
+}
+
+function normalizeEmergenceOptions(body) {
+  const seeds = normalizeArray(body.seeds, ["seed-1", "seed-2", "seed-3"]);
+  if (seeds.length > EMERGENCE_LIMITS.maxSeeds) {
+    return { ok: false, status: 413, error: `seeds must contain at most ${EMERGENCE_LIMITS.maxSeeds} entries` };
+  }
+
+  const numericOptions = [
+    ["turnLimit", 30, EMERGENCE_LIMITS.turnLimit],
+    ["randomEncounterRate", 0.45, EMERGENCE_LIMITS.randomEncounterRate],
+    ["searchBudget", 2, EMERGENCE_LIMITS.searchBudget],
+    ["marketSignalWindow", 8, EMERGENCE_LIMITS.marketSignalWindow],
+  ];
+  const options = {
+    seeds,
+    extraResources: normalizeArray(body.extraResources, []),
+  };
+
+  for (const [name, defaultValue, range] of numericOptions) {
+    const result = normalizeNumberInRange(body[name], defaultValue, range);
+    if (!result.ok) {
+      return { ok: false, status: 400, error: `${name} must be between ${range.min} and ${range.max}` };
+    }
+    options[name] = result.value;
+  }
+
+  return { ok: true, options };
+}
+
+function normalizeNumberInRange(value, defaultValue, { min, max }) {
   const normalized = Number(value ?? defaultValue);
-  return Number.isFinite(normalized) ? normalized : defaultValue;
+  if (!Number.isFinite(normalized) || normalized < min || normalized > max) {
+    return { ok: false };
+  }
+  return { ok: true, value: normalized };
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function loadEnv(file = ".env") {

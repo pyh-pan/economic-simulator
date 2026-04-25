@@ -45,6 +45,99 @@ test("emergence API applies conservative defaults and stringifies array inputs",
   }
 });
 
+test("emergence API rejects excessive turn limits before running", async () => {
+  const app = createApiApp({ useVite: false });
+  const server = await app.listen(0);
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+  try {
+    const response = await postJsonExpectingClientError(`${baseUrl}/api/emergence/runs`, {
+      seeds: ["too-long"],
+      turnLimit: 201,
+    });
+
+    assert.equal(response.status, 400);
+    assert.match(response.body.error, /turnLimit/i);
+  } finally {
+    await app.close();
+  }
+});
+
+test("emergence API rejects too many seeds before running", async () => {
+  const app = createApiApp({ useVite: false });
+  const server = await app.listen(0);
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+  try {
+    const response = await postJsonExpectingClientError(`${baseUrl}/api/emergence/runs`, {
+      seeds: Array.from({ length: 11 }, (_, index) => `seed-${index}`),
+      turnLimit: 1,
+    });
+
+    assert.equal(response.status, 413);
+    assert.match(response.body.error, /seeds/i);
+  } finally {
+    await app.close();
+  }
+});
+
+test("emergence API rejects out-of-range numeric controls", async () => {
+  const app = createApiApp({ useVite: false });
+  const server = await app.listen(0);
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+  try {
+    const cases = [
+      ["randomEncounterRate", 2.1],
+      ["searchBudget", 0],
+      ["marketSignalWindow", 0],
+    ];
+
+    for (const [field, value] of cases) {
+      const response = await postJsonExpectingClientError(`${baseUrl}/api/emergence/runs`, {
+        seeds: ["bounded"],
+        turnLimit: 1,
+        [field]: value,
+      });
+
+      assert.equal(response.status, 400);
+      assert.match(response.body.error, new RegExp(field, "i"));
+    }
+  } finally {
+    await app.close();
+  }
+});
+
+test("emergence API returns 400 for malformed JSON", async () => {
+  const app = createApiApp({ useVite: false });
+  const server = await app.listen(0);
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+  try {
+    const response = await postRaw(`${baseUrl}/api/emergence/runs`, "{");
+
+    assert.equal(response.status, 400);
+    assert.match(response.body.error, /json/i);
+  } finally {
+    await app.close();
+  }
+});
+
+test("emergence API returns 400 for null JSON bodies", async () => {
+  const app = createApiApp({ useVite: false });
+  const server = await app.listen(0);
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+  try {
+    const response = await postRaw(`${baseUrl}/api/emergence/runs`, "null");
+
+    assert.equal(response.status, 400);
+    assert.match(response.body.error, /object/i);
+  } finally {
+    await app.close();
+  }
+});
+
 async function postJson(url, body) {
   const response = await fetch(url, {
     method: "POST",
@@ -53,6 +146,21 @@ async function postJson(url, body) {
   });
   if (!response.ok) assert.fail(await response.text());
   return response.json();
+}
+
+async function postJsonExpectingClientError(url, body) {
+  const response = await postRaw(url, JSON.stringify(body));
+  assert.equal(response.status >= 400 && response.status < 500, true);
+  return response;
+}
+
+async function postRaw(url, body) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body,
+  });
+  return { status: response.status, body: await response.json() };
 }
 
 function assertHasNoForbiddenTerms(value) {
