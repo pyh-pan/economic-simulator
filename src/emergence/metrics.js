@@ -55,15 +55,24 @@ function buildResourceMetrics(resource, { agents, proposalEvents, acceptedPropos
   const afterFirstAcceptance = firstAcceptedTurn ? proposalsWithResource.filter((proposal) => proposal.turn > firstAcceptedTurn) : [];
   const beforeAcceptanceCost = rejectionRate(beforeFirstAcceptance, acceptedProposals);
   const afterAcceptanceCost = rejectionRate(afterFirstAcceptance, acceptedProposals);
+  const acceptanceBreadth = rate(countUnique(acceptedWithResource.flatMap((proposal) => [proposal.from_agent, proposal.to_agent])), agents.length);
+  const acceptanceContextDiversity = rate(countUnique(acceptedWithResource.map((proposal) => resourceContext(proposal, resource))), 2);
+  const passThroughRate = buildPassThroughRate(resource, acceptedProposals);
+  const nonConsumptionHolding = buildNonConsumptionHolding(resource, agents);
+  const repeatAcceptanceStability = rate(Math.max(0, acceptedWithResource.length - 1), Math.max(0, proposalsWithResource.length - 1));
 
   return {
-    acceptance_breadth: rate(countUnique(acceptedWithResource.flatMap((proposal) => [proposal.from_agent, proposal.to_agent])), agents.length),
-    acceptance_context_diversity: rate(countUnique(acceptedWithResource.map((proposal) => resourceContext(proposal, resource))), 2),
-    pass_through_rate: buildPassThroughRate(resource, acceptedProposals),
-    non_consumption_holding: buildNonConsumptionHolding(resource, agents),
+    acceptance_breadth: acceptanceBreadth,
+    acceptance_context_diversity: acceptanceContextDiversity,
+    exchange_role_score: average(
+      acceptanceBreadth + acceptanceContextDiversity + passThroughRate + nonConsumptionHolding + repeatAcceptanceStability,
+      5,
+    ),
+    pass_through_rate: passThroughRate,
+    non_consumption_holding: nonConsumptionHolding,
     trade_bridge_count: countUnique(acceptedWithResource.map((proposal) => agentPairKey(proposal.from_agent, proposal.to_agent))),
     search_cost_reduction_after_acceptance: clamp(beforeAcceptanceCost - afterAcceptanceCost),
-    repeat_acceptance_stability: rate(Math.max(0, acceptedWithResource.length - 1), Math.max(0, proposalsWithResource.length - 1)),
+    repeat_acceptance_stability: repeatAcceptanceStability,
   };
 }
 

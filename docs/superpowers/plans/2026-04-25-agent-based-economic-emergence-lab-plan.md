@@ -1,5 +1,7 @@
 # Agent-Based Economic Emergence Lab Implementation Plan
 
+Status: historical implementation plan. The emergence engine, API integration, UI surface, neutral resource metrics, and evidence-linked reporting are now implemented. Use `ROADMAP.md` and `SIMULATION_CONTRACT.md` for current product direction.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the v1 economic emergence engine: 15 heterogeneous individual agents, configurable resource constraints, neutral resource analysis, multi-seed experiments, and evidence-linked reports.

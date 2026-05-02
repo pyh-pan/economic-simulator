@@ -43,6 +43,7 @@ export function buildEmergenceReport(experiment = { runs: [], summary: summarize
       confidence: confidenceFor(resourceSummary.seed_presence_rate),
       evidence: {
         average_acceptance_breadth: averageAcceptanceBreadth,
+        average_exchange_role_score: finite(resourceSummary.average_exchange_role_score),
         average_pass_through_rate: finite(resourceSummary.average_pass_through_rate),
         seed_presence_rate: finite(resourceSummary.seed_presence_rate),
       },
@@ -83,6 +84,9 @@ export function summarizeEmergenceRuns(runs) {
           {
             average_acceptance_breadth: average(
               configuredRuns.map((run) => run.metrics?.resources?.[resource]?.acceptance_breadth ?? 0),
+            ),
+            average_exchange_role_score: average(
+              configuredRuns.map((run) => run.metrics?.resources?.[resource]?.exchange_role_score ?? 0),
             ),
             average_pass_through_rate: average(
               configuredRuns.map((run) => run.metrics?.resources?.[resource]?.pass_through_rate ?? 0),

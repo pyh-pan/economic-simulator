@@ -1,5 +1,7 @@
 # Agent-Based Economic Emergence Lab v1 Design
 
+Status: current design background. The v1 emergence lab exists and now reports neutral `exchange_role_score` behavior signals. Use `ROADMAP.md` and `SIMULATION_CONTRACT.md` for current product direction and constraints.
+
 ## Goal
 
 Build a configurable, reproducible, evidence-driven economic emergence lab. The system should let users define objective economic constraints and heterogeneous agent traits, run repeatable experiments, and observe whether macro-level exchange structures emerge from micro-level decisions.

@@ -1,5 +1,7 @@
 # AI Turn Simulation Design
 
+Status: current design background. The turn simulation design is implemented and has been extended with decision ledger context, agreement metrics, and richer resource constraints. Use `ROADMAP.md` and `SIMULATION_CONTRACT.md` for current product direction and constraints.
+
 ## Product Behavior
 
 The simulator should stop recomputing final results while the user drags parameters. Parameters define a run configuration only. A run starts when the user clicks `Run`.

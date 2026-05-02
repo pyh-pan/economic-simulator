@@ -62,15 +62,17 @@ test("resource findings include compact linked event references", () => {
       average_unmet_need_rate: 0,
       resources: {
         fish: {
-          average_acceptance_breadth: 0.5,
-          average_pass_through_rate: 0,
-          seed_presence_rate: 1,
-        },
-        ore: {
-          average_acceptance_breadth: 0,
-          average_pass_through_rate: 0,
-          seed_presence_rate: 0,
-        },
+            average_acceptance_breadth: 0.5,
+            average_exchange_role_score: 0.4,
+            average_pass_through_rate: 0,
+            seed_presence_rate: 1,
+          },
+          ore: {
+            average_acceptance_breadth: 0,
+            average_exchange_role_score: 0,
+            average_pass_through_rate: 0,
+            seed_presence_rate: 0,
+          },
       },
     },
   });
@@ -121,9 +123,11 @@ test("resource summaries only average runs where the resource is configured", ()
 
   assert.equal(summary.resources.fish.average_acceptance_breadth, 0.7);
   assert.equal(summary.resources.fish.average_pass_through_rate, 0.3);
+  assert.equal(summary.resources.fish.average_exchange_role_score, 0);
   assert.equal(summary.resources.fish.seed_presence_rate, 1);
   assert.equal(summary.resources.ore.average_acceptance_breadth, 0.4);
   assert.equal(summary.resources.ore.average_pass_through_rate, 0.1);
+  assert.equal(summary.resources.ore.average_exchange_role_score, 0);
   assert.equal(summary.resources.ore.seed_presence_rate, 1);
 });
 

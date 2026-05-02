@@ -1,5 +1,7 @@
 # Engineering And Product Next Implementation Plan
 
+Status: historical implementation plan. The project has moved from the old static/vanilla UI plan to the current React/Vite visual economic sandbox. Use `ROADMAP.md` and `SIMULATION_CONTRACT.md` for current product direction.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add the missing engineering and product layers that make the sandbox useful: real provider-backed agents, parameter scanning, persisted experiments, comparison views, replay controls, network visualization, and browser QA.

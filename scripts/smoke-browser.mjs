@@ -42,9 +42,13 @@ const result = await page.evaluate(() => ({
   rootChildren: document.querySelector("#root")?.children.length ?? 0,
   hasAppTitle: document.body.innerText.includes("Economic Simulator"),
   hasMetrics: document.body.innerText.includes("COMPLETION"),
+  hasAlignmentMetric: document.body.innerText.includes("LEDGER ALIGN"),
   hasTribes: document.body.innerText.includes("Current inventories"),
   hasProposal: document.body.innerText.includes("Current proposal"),
   hasDecision: document.body.innerText.toLowerCase().includes("accept trade") || document.body.innerText.toLowerCase().includes("reject trade"),
+  hasLedger: document.body.innerText.toLowerCase().includes("decision ledger"),
+  hasAgreement: document.body.innerText.toLowerCase().includes("aligned with the ledger") || document.body.innerText.toLowerCase().includes("diverged from the ledger"),
+  hasExchangeRatio: document.body.innerText.toLowerCase().includes("exchange ratio"),
   hasEmergence: Boolean([...document.querySelectorAll(".tabs button")].find((button) => button.innerText.includes("Emergence"))),
 }));
 await page.getByRole("button", { name: /^Auto$/ }).click();
@@ -58,7 +62,7 @@ if (pageErrors.length > 0 || consoleProblems.length > 0) {
   throw new Error(JSON.stringify({ pageErrors, consoleProblems }, null, 2));
 }
 
-if (!result.hasAppTitle || !result.hasMetrics || !result.hasTribes || !result.hasProposal || !result.hasDecision || !result.hasEmergence || result.rootChildren < 1) {
+if (!result.hasAppTitle || !result.hasMetrics || !result.hasAlignmentMetric || !result.hasTribes || !result.hasProposal || !result.hasDecision || !result.hasLedger || !result.hasAgreement || !result.hasExchangeRatio || !result.hasEmergence || result.rootChildren < 1) {
   throw new Error(`Browser smoke failed: ${JSON.stringify(result)}`);
 }
 

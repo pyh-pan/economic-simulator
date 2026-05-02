@@ -238,6 +238,7 @@ function RunView({ snapshot, loading, autoRun }) {
         <h2>Current proposal</h2>
         <ProposalCard proposal={snapshot.currentProposal} />
         <DecisionCard decision={snapshot.currentDecision} />
+        <DecisionLedger context={snapshot.currentDecisionContext} agreement={snapshot.currentDecisionAgreement} />
       </section>
       <section className="panel">
         <h2>Turn log</h2>
@@ -282,12 +283,65 @@ function DecisionCard({ decision }) {
   );
 }
 
+function DecisionLedger({ context, agreement }) {
+  if (!context) {
+    return <p className="event-line">Decision ledger appears after a proposal is evaluated.</p>;
+  }
+
+  const rows = [
+    ["Benefit", context.utility.gross_benefit],
+    ["Cost", -context.pay.payment_opportunity_cost],
+    ["Reserve", -context.pay.reserve_penalty],
+    ["Risk", -context.trust.trust_adjusted_risk],
+    ["Net", context.utility.net_utility],
+  ];
+
+  return (
+    <article className="ledger-card">
+      <div className="ledger-head">
+        <span>Decision ledger</span>
+        <strong className={context.utility.recommendation === "accept" ? "accept-text" : "reject-text"}>{context.utility.recommendation}</strong>
+      </div>
+      <p className={`agreement-line ${agreement === false ? "diverged" : ""}`}>{formatAgreement(agreement)}</p>
+      <div className="ledger-flow">
+        <LedgerResource title="Receive" entry={context.receive} />
+        <LedgerResource title="Pay" entry={context.pay} />
+      </div>
+      <p className="exchange-line">Exchange ratio: {formatLedgerNumber(context.exchange?.offered_per_requested ?? 0)} received per paid</p>
+      <div className="ledger-rows">
+        {rows.map(([label, value]) => <LedgerRow key={label} label={label} value={value} />)}
+      </div>
+    </article>
+  );
+}
+
+function LedgerResource({ title, entry }) {
+  return (
+    <div className="ledger-resource">
+      <span>{title}</span>
+      <strong>{entry.quantity} {formatResourceName(entry.resource)}</strong>
+      <p>gap {entry.gap_before} to {entry.gap_after}</p>
+    </div>
+  );
+}
+
+function LedgerRow({ label, value }) {
+  const formatted = typeof value === "number" && value > 0 ? `+${formatLedgerNumber(value)}` : formatLedgerNumber(value);
+  return (
+    <div className={`ledger-row ${label === "Net" ? "net-row" : ""}`}>
+      <span>{label}</span>
+      <strong>{formatted}</strong>
+    </div>
+  );
+}
+
 function Metrics({ metrics }) {
   return (
     <section className="metrics">
       <Metric label="Completion" value={`${Math.round(metrics.trade_completion_rate * 100)}%`} />
       <Metric label="Acceptance" value={`${Math.round(metrics.acceptance_rate * 100)}%`} />
       <Metric label="Completed" value={metrics.completed_trades} />
+      <Metric label="Ledger align" value={`${Math.round((metrics.recommendation_agreement_rate ?? 0) * 100)}%`} />
       <Metric label="Invalid output" value={`${Math.round(metrics.invalid_output_rate * 100)}%`} />
     </section>
   );
@@ -302,7 +356,7 @@ function TribeCard({ tribe, resources }) {
     <article className="tribe-card">
       <h3>{tribe.tribe_id} / {formatResourceName(tribe.dominant_resource)}</h3>
       <div className="resource-list">
-        {resources.map((resource) => <span key={resource}>{formatResourceName(resource)}: {tribe.inventory[resource] ?? 0}</span>)}
+        {resources.map((resource) => <span key={resource}>{formatResourceName(resource)}: {tribe.inventory[resource] ?? 0}/{tribe.targets?.[resource] ?? tribe.needs?.[resource] ?? 0}</span>)}
       </div>
       {tribe.reputation ? <p className="reputation">{formatReputation(tribe.reputation)}</p> : null}
     </article>
@@ -369,6 +423,7 @@ function describeEvent(event) {
   if (event.type === "proposal_created") return `${event.from_tribe} offered ${event.offered_quantity} ${formatResourceName(event.offered_resource)} to ${event.to_tribe} for ${event.requested_quantity} ${formatResourceName(event.requested_resource)}.`;
   if (event.type === "proposal_accepted") return `Accepted: ${formatVisibleText(event.reason)}`;
   if (event.type === "proposal_rejected") return `Rejected: ${formatVisibleText(event.reason)}`;
+  if (event.type === "counter_proposed") return `Countered: ${event.offered_quantity} ${formatResourceName(event.offered_resource)} for ${event.requested_quantity} ${formatResourceName(event.requested_resource)}.`;
   if (event.type === "proposal_invalid") return `Invalid proposal: ${formatVisibleText(event.reason)}`;
   if (event.type === "trade_settled") return "Trade settled.";
   if (event.type === "run_finished") return "Run finished.";
@@ -384,6 +439,23 @@ function formatReputation(reputation) {
 
 function formatResourceName(resource) {
   return resource === "shells" || resource === "beads" ? "extra resource" : resource;
+}
+
+function formatLedgerNumber(value) {
+  if (typeof value !== "number") {
+    return String(value);
+  }
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
+}
+
+function formatAgreement(agreement) {
+  if (agreement === true) {
+    return "Agent aligned with the ledger";
+  }
+  if (agreement === false) {
+    return "Agent diverged from the ledger";
+  }
+  return "Agreement pending";
 }
 
 function formatEvidence(evidence) {

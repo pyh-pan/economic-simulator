@@ -43,6 +43,10 @@ test("advanceSimulationTurn performs one proposal decision and settlement", asyn
   assert.equal(snapshot.currentProposal.proposal_id, "proposal-1");
   assert.equal(snapshot.currentProposal.from_tribe, "fishers");
   assert.equal(snapshot.currentDecision.type, "accept_trade");
+  assert.equal(snapshot.currentDecisionContext.utility.recommendation, "accept");
+  assert.equal(snapshot.currentDecisionAgreement, true);
+  assert.equal(snapshot.metrics.recommendation_agreement_rate, 1);
+  assert.equal(snapshot.currentDecisionContext.utility.net_utility > 0, true);
   assert.match(snapshot.currentDecision.reason, /trustworthy|helps|needed/i);
   assert.equal(snapshot.metrics.completed_trades, 1);
   assert.equal(snapshot.turnEvents.some((event) => event.type === "proposal_created"), true);

@@ -17,29 +17,46 @@ const ACTION_SCHEMAS = {
   propose_trade: ["type", "to_tribe", "offered_resource", "offered_quantity", "requested_resource", "requested_quantity", "reason"],
   accept_trade: ["type", "proposal_id", "reason"],
   reject_trade: ["type", "proposal_id", "reason"],
+  counter_trade: ["type", "proposal_id", "offered_resource", "offered_quantity", "requested_resource", "requested_quantity", "reason"],
   explain: ["type", "text"],
 };
 
-export function createDefaultWorld({ seed = "default", turnLimit = 10, globalTrust = 0.5, enableReputation = false, protoCurrencyCandidates = [] } = {}) {
+export function createDefaultWorld({ seed = "default", turnLimit = 10, globalTrust = 0.5, enableReputation = false, protoCurrencyCandidates = [], productionShocks = [], norms = {} } = {}) {
   const tribes = {};
   const resources = [...RESOURCES, ...protoCurrencyCandidates.filter((resource) => !RESOURCES.includes(resource))];
 
   for (const [tribeId, dominantResource] of TRIBE_DEFINITIONS) {
     const inventory = Object.fromEntries(resources.map((resource) => [resource, resource === dominantResource ? 10 : resource === "shells" ? 2 : 1]));
     const needs = Object.fromEntries(resources.map((resource) => [resource, resource === dominantResource || protoCurrencyCandidates.includes(resource) ? 0 : 3]));
+    const targets = { ...needs };
+    const reserves = Object.fromEntries(resources.map((resource) => [resource, 1]));
+    const productionRates = Object.fromEntries(resources.map((resource) => [resource, resource === dominantResource ? 1 : 0]));
+    const priorities = Object.fromEntries(resources.map((resource) => [resource, 1]));
 
     tribes[tribeId] = {
       tribe_id: tribeId,
       dominant_resource: dominantResource,
       inventory,
       needs,
+      targets,
+      reserves,
+      production_rates: productionRates,
+      priorities,
       local_history: [],
       ...(enableReputation ? { reputation: Object.fromEntries(TRIBE_DEFINITIONS.filter(([otherId]) => otherId !== tribeId).map(([otherId]) => [otherId, 0])) } : {}),
     };
   }
 
   return {
-    config: { seed, turn_limit: turnLimit, global_trust: globalTrust, enable_reputation: enableReputation, proto_currency_candidates: protoCurrencyCandidates },
+    config: {
+      seed,
+      turn_limit: turnLimit,
+      global_trust: globalTrust,
+      enable_reputation: enableReputation,
+      proto_currency_candidates: protoCurrencyCandidates,
+      production_shocks: productionShocks.map((shock) => ({ ...shock })),
+      norms: { ...norms },
+    },
     resources,
     turn: 0,
     tribes,
@@ -66,9 +83,50 @@ export function getVisibleState(world, tribeId) {
     trustLevel: world.config.global_trust,
     inventory: { ...tribe.inventory },
     needs: { ...tribe.needs },
+    targets: { ...tribe.targets },
+    reserves: { ...tribe.reserves },
+    productionRates: effectiveProductionRates(world, tribe),
+    priorities: { ...tribe.priorities },
+    norms: { ...world.config.norms },
     ...(tribe.reputation ? { reputation: { ...tribe.reputation } } : {}),
     localHistory: tribe.local_history.map((event) => ({ ...event })),
     proposals,
+  };
+}
+
+export function computeDecisionContext(visibleState, proposal) {
+  const trustLevel = clamp01(Number(visibleState.trustLevel ?? 0.5));
+  const offered = describeReceivedResource(visibleState, proposal);
+  const requested = describePaidResource(visibleState, proposal);
+  const baseTradeRisk = 0.25;
+  const trustAdjustedRisk = roundTo(baseTradeRisk * (1 - trustLevel), 4);
+  const grossBenefit = offered.target_gap_benefit;
+  const totalCost = roundTo(requested.payment_opportunity_cost + requested.reserve_penalty + trustAdjustedRisk, 4);
+  const netUtility = roundTo(grossBenefit - totalCost, 4);
+  const minimumNetUtility = Number(visibleState.norms?.minimum_net_utility ?? 0);
+
+  return {
+    objective: "reduce unmet resource targets while preserving reserves",
+    receive: offered,
+    pay: requested,
+    exchange: {
+      offered_per_requested: roundTo(proposal.offered_quantity / proposal.requested_quantity, 4),
+      requested_per_offered: roundTo(proposal.requested_quantity / proposal.offered_quantity, 4),
+    },
+    trust: {
+      trustLevel,
+      base_trade_risk: baseTradeRisk,
+      trust_adjusted_risk: trustAdjustedRisk,
+    },
+    norms: {
+      minimum_net_utility: minimumNetUtility,
+    },
+    utility: {
+      gross_benefit: grossBenefit,
+      total_cost: totalCost,
+      net_utility: netUtility,
+      recommendation: netUtility > minimumNetUtility ? "accept" : "reject",
+    },
   };
 }
 
@@ -94,7 +152,7 @@ export function validateAction(action) {
     }
   }
 
-  if (action.type === "propose_trade") {
+  if (action.type === "propose_trade" || action.type === "counter_trade") {
     if (!RESOURCES.includes(action.offered_resource) || !RESOURCES.includes(action.requested_resource)) {
       return { ok: false, error: "Unknown resource" };
     }
@@ -106,11 +164,18 @@ export function validateAction(action) {
   return { ok: true, action: { ...action } };
 }
 
-export function runSimulation({ seed = "default", turnLimit = 10, globalTrust = 0.5, agents = {}, proposals = [], proposalStrategy = "fixed", enableReputation = false, protoCurrencyCandidates = [] } = {}) {
-  const world = createDefaultWorld({ seed, turnLimit, globalTrust, enableReputation, protoCurrencyCandidates });
+export function runSimulation({ seed = "default", turnLimit = 10, globalTrust = 0.5, agents = {}, proposals = [], proposalStrategy = "fixed", enableReputation = false, protoCurrencyCandidates = [], productionShocks = [], norms = {} } = {}) {
+  const world = createDefaultWorld({ seed, turnLimit, globalTrust, enableReputation, protoCurrencyCandidates, productionShocks, norms });
   const initialTotals = resourceTotals(world);
   let agentCalls = 0;
   let invalidAgentOutputs = 0;
+  let recommendationDecisions = 0;
+  let recommendationAgreements = 0;
+  let positiveUtilityDecisions = 0;
+  let positiveUtilityAcceptances = 0;
+  let negativeUtilityDecisions = 0;
+  let negativeUtilityAcceptances = 0;
+  let highTrustVagueDistrustRejections = 0;
 
   for (let turn = 1; turn <= turnLimit; turn += 1) {
     world.turn = turn;
@@ -140,11 +205,12 @@ export function runSimulation({ seed = "default", turnLimit = 10, globalTrust = 
 
     const agent = agents[proposal.to_tribe] ?? defaultResponder(world.config.global_trust, world.rng);
     const visibleState = getVisibleState(world, proposal.to_tribe);
+    const decisionContext = computeDecisionContext(visibleState, proposal);
 
     let action = trustGateAction(world, proposal);
     if (!action) {
       agentCalls += 1;
-      action = agent(visibleState, proposal);
+      action = agent(visibleState, proposal, decisionContext);
     }
     let validation = validateAction(action);
 
@@ -153,7 +219,7 @@ export function runSimulation({ seed = "default", turnLimit = 10, globalTrust = 
       appendEvent(world, { type: "agent_output_invalid", turn, proposal_id: proposal.proposal_id, error: validation.error });
 
       agentCalls += 1;
-      action = agent(visibleState, proposal);
+      action = agent(visibleState, proposal, decisionContext);
       validation = validateAction(action);
 
       if (validation.ok) {
@@ -167,6 +233,30 @@ export function runSimulation({ seed = "default", turnLimit = 10, globalTrust = 
       }
     }
 
+    const agreement = actionMatchesRecommendation(validation.action, decisionContext);
+    if (agreement !== null) {
+      recommendationDecisions += 1;
+      if (agreement) {
+        recommendationAgreements += 1;
+      }
+    }
+    if (isTradeDecision(validation.action)) {
+      if (decisionContext.utility.net_utility > 0) {
+        positiveUtilityDecisions += 1;
+        if (validation.action.type === "accept_trade") {
+          positiveUtilityAcceptances += 1;
+        }
+      } else {
+        negativeUtilityDecisions += 1;
+        if (validation.action.type === "accept_trade") {
+          negativeUtilityAcceptances += 1;
+        }
+      }
+      if (decisionContext.trust.trustLevel >= 0.75 && validation.action.type === "reject_trade" && isVagueDistrustReason(validation.action.reason)) {
+        highTrustVagueDistrustRejections += 1;
+      }
+    }
+
     applyAction(world, proposal, validation.action);
   }
 
@@ -174,7 +264,18 @@ export function runSimulation({ seed = "default", turnLimit = 10, globalTrust = 
 
   const finalTotals = resourceTotals(world);
   const invariants = checkInvariants(world, initialTotals, finalTotals);
-  const metrics = computeMetrics(world.events, agentCalls, invalidAgentOutputs);
+  const metrics = computeMetrics(
+    world.events,
+    agentCalls,
+    invalidAgentOutputs,
+    recommendationDecisions,
+    recommendationAgreements,
+    positiveUtilityDecisions,
+    positiveUtilityAcceptances,
+    negativeUtilityDecisions,
+    negativeUtilityAcceptances,
+    highTrustVagueDistrustRejections,
+  );
 
   return {
     events: world.events,
@@ -195,8 +296,10 @@ export function createSimulationSession({
   proposalStrategy = "fixed",
   enableReputation = false,
   protoCurrencyCandidates = [],
+  productionShocks = [],
+  norms = {},
 } = {}) {
-  const world = createDefaultWorld({ seed, turnLimit, globalTrust, enableReputation, protoCurrencyCandidates });
+  const world = createDefaultWorld({ seed, turnLimit, globalTrust, enableReputation, protoCurrencyCandidates, productionShocks, norms });
   return {
     world,
     agents,
@@ -205,9 +308,18 @@ export function createSimulationSession({
     initialTotals: resourceTotals(world),
     agentCalls: 0,
     invalidAgentOutputs: 0,
+    recommendationDecisions: 0,
+    recommendationAgreements: 0,
+    positiveUtilityDecisions: 0,
+    positiveUtilityAcceptances: 0,
+    negativeUtilityDecisions: 0,
+    negativeUtilityAcceptances: 0,
+    highTrustVagueDistrustRejections: 0,
     finished: false,
     currentProposal: null,
     currentDecision: null,
+    currentDecisionContext: null,
+    currentDecisionAgreement: null,
     lastTurnEvents: [],
   };
 }
@@ -230,6 +342,8 @@ export async function advanceSimulationTurn(session) {
   world.turn = turn;
   session.currentProposal = null;
   session.currentDecision = null;
+  session.currentDecisionContext = null;
+  session.currentDecisionAgreement = null;
 
   appendEvent(world, { type: "turn_started", turn });
 
@@ -259,12 +373,14 @@ export async function advanceSimulationTurn(session) {
   });
 
   const visibleState = getVisibleState(world, proposal.to_tribe);
+  const decisionContext = computeDecisionContext(visibleState, proposal);
+  session.currentDecisionContext = stableClone(decisionContext);
   const agent = session.agents[proposal.to_tribe] ?? defaultResponder(world.config.global_trust, world.rng);
 
   let action = trustGateAction(world, proposal);
   if (!action) {
     session.agentCalls += 1;
-    action = await agent(visibleState, proposal);
+    action = await agent(visibleState, proposal, decisionContext);
   }
   let validation = validateAction(action);
 
@@ -273,7 +389,7 @@ export async function advanceSimulationTurn(session) {
     appendEvent(world, { type: "agent_output_invalid", turn, proposal_id: proposal.proposal_id, error: validation.error });
 
     session.agentCalls += 1;
-    action = await agent(visibleState, proposal);
+    action = await agent(visibleState, proposal, decisionContext);
     validation = validateAction(action);
 
     if (validation.ok) {
@@ -290,6 +406,29 @@ export async function advanceSimulationTurn(session) {
   }
 
   session.currentDecision = stableClone(validation.action);
+  session.currentDecisionAgreement = actionMatchesRecommendation(validation.action, decisionContext);
+  if (session.currentDecisionAgreement !== null) {
+    session.recommendationDecisions += 1;
+    if (session.currentDecisionAgreement) {
+      session.recommendationAgreements += 1;
+    }
+  }
+  if (isTradeDecision(validation.action)) {
+    if (decisionContext.utility.net_utility > 0) {
+      session.positiveUtilityDecisions += 1;
+      if (validation.action.type === "accept_trade") {
+        session.positiveUtilityAcceptances += 1;
+      }
+    } else {
+      session.negativeUtilityDecisions += 1;
+      if (validation.action.type === "accept_trade") {
+        session.negativeUtilityAcceptances += 1;
+      }
+    }
+    if (decisionContext.trust.trustLevel >= 0.75 && validation.action.type === "reject_trade" && isVagueDistrustReason(validation.action.reason)) {
+      session.highTrustVagueDistrustRejections += 1;
+    }
+  }
   applyAction(world, proposal, validation.action);
   session.currentProposal = stableClone(proposal);
 
@@ -307,9 +446,22 @@ export function getSimulationSnapshot(session) {
     finished: session.finished,
     currentProposal: session.currentProposal ? stableClone(session.currentProposal) : null,
     currentDecision: session.currentDecision ? stableClone(session.currentDecision) : null,
+    currentDecisionContext: session.currentDecisionContext ? stableClone(session.currentDecisionContext) : null,
+    currentDecisionAgreement: session.currentDecisionAgreement,
     turnEvents: session.lastTurnEvents.map((event) => ({ ...event })),
     events: world.events.map((event) => ({ ...event })),
-    metrics: computeMetrics(world.events, session.agentCalls, session.invalidAgentOutputs),
+    metrics: computeMetrics(
+      world.events,
+      session.agentCalls,
+      session.invalidAgentOutputs,
+      session.recommendationDecisions,
+      session.recommendationAgreements,
+      session.positiveUtilityDecisions,
+      session.positiveUtilityAcceptances,
+      session.negativeUtilityDecisions,
+      session.negativeUtilityAcceptances,
+      session.highTrustVagueDistrustRejections,
+    ),
     invariants: checkInvariants(world, session.initialTotals, finalTotals),
     resources: [...world.resources],
     tribes: Object.values(world.tribes).map((tribe) => ({
@@ -317,16 +469,27 @@ export function getSimulationSnapshot(session) {
       dominant_resource: tribe.dominant_resource,
       inventory: { ...tribe.inventory },
       needs: { ...tribe.needs },
+      targets: { ...tribe.targets },
+      reserves: { ...tribe.reserves },
+      production_rates: { ...tribe.production_rates },
+      priorities: { ...tribe.priorities },
       ...(tribe.reputation ? { reputation: { ...tribe.reputation } } : {}),
     })),
   };
 }
 
-export async function runSimulationAsync({ seed = "default", turnLimit = 10, globalTrust = 0.5, agents = {}, proposals = [], proposalStrategy = "fixed", enableReputation = false, protoCurrencyCandidates = [] } = {}) {
-  const world = createDefaultWorld({ seed, turnLimit, globalTrust, enableReputation, protoCurrencyCandidates });
+export async function runSimulationAsync({ seed = "default", turnLimit = 10, globalTrust = 0.5, agents = {}, proposals = [], proposalStrategy = "fixed", enableReputation = false, protoCurrencyCandidates = [], productionShocks = [], norms = {} } = {}) {
+  const world = createDefaultWorld({ seed, turnLimit, globalTrust, enableReputation, protoCurrencyCandidates, productionShocks, norms });
   const initialTotals = resourceTotals(world);
   let agentCalls = 0;
   let invalidAgentOutputs = 0;
+  let recommendationDecisions = 0;
+  let recommendationAgreements = 0;
+  let positiveUtilityDecisions = 0;
+  let positiveUtilityAcceptances = 0;
+  let negativeUtilityDecisions = 0;
+  let negativeUtilityAcceptances = 0;
+  let highTrustVagueDistrustRejections = 0;
 
   for (let turn = 1; turn <= turnLimit; turn += 1) {
     world.turn = turn;
@@ -356,11 +519,12 @@ export async function runSimulationAsync({ seed = "default", turnLimit = 10, glo
 
     const agent = agents[proposal.to_tribe] ?? defaultResponder(world.config.global_trust, world.rng);
     const visibleState = getVisibleState(world, proposal.to_tribe);
+    const decisionContext = computeDecisionContext(visibleState, proposal);
 
     let action = trustGateAction(world, proposal);
     if (!action) {
       agentCalls += 1;
-      action = await agent(visibleState, proposal);
+      action = await agent(visibleState, proposal, decisionContext);
     }
     let validation = validateAction(action);
 
@@ -369,7 +533,7 @@ export async function runSimulationAsync({ seed = "default", turnLimit = 10, glo
       appendEvent(world, { type: "agent_output_invalid", turn, proposal_id: proposal.proposal_id, error: validation.error });
 
       agentCalls += 1;
-      action = await agent(visibleState, proposal);
+      action = await agent(visibleState, proposal, decisionContext);
       validation = validateAction(action);
 
       if (validation.ok) {
@@ -383,6 +547,30 @@ export async function runSimulationAsync({ seed = "default", turnLimit = 10, glo
       }
     }
 
+    const agreement = actionMatchesRecommendation(validation.action, decisionContext);
+    if (agreement !== null) {
+      recommendationDecisions += 1;
+      if (agreement) {
+        recommendationAgreements += 1;
+      }
+    }
+    if (isTradeDecision(validation.action)) {
+      if (decisionContext.utility.net_utility > 0) {
+        positiveUtilityDecisions += 1;
+        if (validation.action.type === "accept_trade") {
+          positiveUtilityAcceptances += 1;
+        }
+      } else {
+        negativeUtilityDecisions += 1;
+        if (validation.action.type === "accept_trade") {
+          negativeUtilityAcceptances += 1;
+        }
+      }
+      if (decisionContext.trust.trustLevel >= 0.75 && validation.action.type === "reject_trade" && isVagueDistrustReason(validation.action.reason)) {
+        highTrustVagueDistrustRejections += 1;
+      }
+    }
+
     applyAction(world, proposal, validation.action);
   }
 
@@ -390,7 +578,18 @@ export async function runSimulationAsync({ seed = "default", turnLimit = 10, glo
 
   const finalTotals = resourceTotals(world);
   const invariants = checkInvariants(world, initialTotals, finalTotals);
-  const metrics = computeMetrics(world.events, agentCalls, invalidAgentOutputs);
+  const metrics = computeMetrics(
+    world.events,
+    agentCalls,
+    invalidAgentOutputs,
+    recommendationDecisions,
+    recommendationAgreements,
+    positiveUtilityDecisions,
+    positiveUtilityAcceptances,
+    negativeUtilityDecisions,
+    negativeUtilityAcceptances,
+    highTrustVagueDistrustRejections,
+  );
 
   return {
     events: world.events,
@@ -426,9 +625,10 @@ export function createLlmAgent({ provider }) {
     throw new Error("createLlmAgent requires a provider function");
   }
 
-  return async (visibleState, proposal) => provider({
+  return async (visibleState, proposal, decisionContext = null) => provider({
     visibleState: stableClone(visibleState),
     proposal: stableClone(proposal),
+    decisionContext: decisionContext ? stableClone(decisionContext) : null,
     allowedActions: Object.keys(ACTION_SCHEMAS),
   });
 }
@@ -457,6 +657,10 @@ export function buildReplaySummary(run) {
       dominant_resource: tribe.dominant_resource,
       inventory: { ...tribe.inventory },
       needs: { ...tribe.needs },
+      targets: { ...tribe.targets },
+      reserves: { ...tribe.reserves },
+      production_rates: { ...tribe.production_rates },
+      priorities: { ...tribe.priorities },
       ...(tribe.reputation ? { reputation: { ...tribe.reputation } } : {}),
     })),
   };
@@ -487,6 +691,89 @@ function createProposal(world, turn, plannedProposal, proposalStrategy) {
 
   world.proposals[proposal.proposal_id] = proposal;
   return proposal;
+}
+
+function effectiveProductionRates(world, tribe) {
+  const rates = { ...tribe.production_rates };
+  for (const shock of world.config.production_shocks ?? []) {
+    if (shock.turn === world.turn && shock.tribe_id === tribe.tribe_id && shock.resource in rates) {
+      rates[shock.resource] = Number(shock.production_rate ?? rates[shock.resource]);
+    }
+  }
+  return rates;
+}
+
+function describeReceivedResource(visibleState, proposal) {
+  const resource = proposal.offered_resource;
+  const quantity = proposal.offered_quantity;
+  const target = resourceTarget(visibleState, resource);
+  const before = resourceInventory(visibleState, resource);
+  const after = before + quantity;
+  const gapBefore = resourceGap(target, before);
+  const gapAfter = resourceGap(target, after);
+
+  return {
+    resource,
+    quantity,
+    target,
+    inventory_before: before,
+    inventory_after: after,
+    gap_before: gapBefore,
+    gap_after: gapAfter,
+    target_gap_benefit: roundTo((gapBefore - gapAfter) * resourcePriority(visibleState, resource), 4),
+  };
+}
+
+function describePaidResource(visibleState, proposal) {
+  const resource = proposal.requested_resource;
+  const quantity = proposal.requested_quantity;
+  const target = resourceTarget(visibleState, resource);
+  const reserve = resourceReserve(visibleState, resource);
+  const productionRate = resourceProductionRate(visibleState, resource);
+  const before = resourceInventory(visibleState, resource);
+  const after = before - quantity;
+  const gapBefore = resourceGap(target, before);
+  const gapAfter = resourceGap(target, after);
+  const newGapCost = (Math.max(0, gapAfter - gapBefore) * resourcePriority(visibleState, resource)) / (1 + productionRate);
+  const reservePenalty = Math.max(0, reserve - after);
+
+  return {
+    resource,
+    quantity,
+    target,
+    reserve,
+    production_rate: productionRate,
+    inventory_before: before,
+    inventory_after: after,
+    gap_before: gapBefore,
+    gap_after: gapAfter,
+    payment_opportunity_cost: roundTo(newGapCost, 4),
+    reserve_penalty: roundTo(reservePenalty, 4),
+  };
+}
+
+function resourceTarget(visibleState, resource) {
+  return Number(visibleState.targets?.[resource] ?? visibleState.needs?.[resource] ?? 0);
+}
+
+function resourceInventory(visibleState, resource) {
+  return Number(visibleState.inventory?.[resource] ?? 0);
+}
+
+function resourceReserve(visibleState, resource) {
+  return Number(visibleState.reserves?.[resource] ?? 1);
+}
+
+function resourceProductionRate(visibleState, resource) {
+  return Number(visibleState.productionRates?.[resource] ?? (visibleState.dominantResource === resource ? 1 : 0));
+}
+
+function resourcePriority(visibleState, resource) {
+  return Number(visibleState.priorities?.[resource] ?? 1);
+}
+
+function resourceGap(target, inventory) {
+  return Math.max(0, target - inventory);
 }
 
 function createAutoProposal(world, turn) {
@@ -540,6 +827,25 @@ function defaultResponder(globalTrust, rng) {
   };
 }
 
+function actionMatchesRecommendation(action, decisionContext) {
+  const recommendation = decisionContext?.utility?.recommendation;
+  if (!recommendation || !["accept_trade", "reject_trade"].includes(action?.type)) {
+    return null;
+  }
+  return (recommendation === "accept" && action.type === "accept_trade") || (recommendation === "reject" && action.type === "reject_trade");
+}
+
+function isTradeDecision(action) {
+  return ["accept_trade", "reject_trade"].includes(action?.type);
+}
+
+function isVagueDistrustReason(reason) {
+  const normalized = String(reason ?? "").toLowerCase();
+  const mentionsDistrust = /\b(distrust|do not trust|don't trust|not trust|trust is too low|mistrust|deception|misleading)\b/.test(normalized);
+  const citesLedger = /\b(benefit|cost|reserve|risk|utility|inventory|need|gap|shortage|afford|target)\b/.test(normalized);
+  return mentionsDistrust && !citesLedger;
+}
+
 function trustGateAction(world, proposal) {
   if (world.config.global_trust > 0) {
     return null;
@@ -569,6 +875,23 @@ function applyAction(world, proposal, action) {
     proposal.resolution_reason = action.reason;
     updateReputation(world, proposal, -1);
     appendEvent(world, { type: "proposal_rejected", turn: world.turn, proposal_id: proposal.proposal_id, reason: action.reason });
+    return;
+  }
+
+  if (action.type === "counter_trade" && action.proposal_id === proposal.proposal_id) {
+    proposal.status = "rejected";
+    proposal.resolution_reason = action.reason;
+    updateReputation(world, proposal, -1);
+    appendEvent(world, {
+      type: "counter_proposed",
+      turn: world.turn,
+      proposal_id: proposal.proposal_id,
+      offered_resource: action.offered_resource,
+      offered_quantity: action.offered_quantity,
+      requested_resource: action.requested_resource,
+      requested_quantity: action.requested_quantity,
+      reason: action.reason,
+    });
     return;
   }
 
@@ -634,7 +957,18 @@ function eventInvolvesTribe(world, event, tribeId) {
   return proposal?.from_tribe === tribeId || proposal?.to_tribe === tribeId;
 }
 
-function computeMetrics(events, agentCalls, invalidAgentOutputs) {
+function computeMetrics(
+  events,
+  agentCalls,
+  invalidAgentOutputs,
+  recommendationDecisions = 0,
+  recommendationAgreements = 0,
+  positiveUtilityDecisions = 0,
+  positiveUtilityAcceptances = 0,
+  negativeUtilityDecisions = 0,
+  negativeUtilityAcceptances = 0,
+  highTrustVagueDistrustRejections = 0,
+) {
   const validTradeProposals = events.filter((event) => event.type === "proposal_created").length;
   const acceptedProposals = events.filter((event) => event.type === "proposal_accepted").length;
   const rejectedProposals = events.filter((event) => event.type === "proposal_rejected").length;
@@ -644,6 +978,7 @@ function computeMetrics(events, agentCalls, invalidAgentOutputs) {
     valid_trade_proposals: validTradeProposals,
     accepted_proposals: acceptedProposals,
     rejected_proposals: rejectedProposals,
+    counter_proposals: events.filter((event) => event.type === "counter_proposed").length,
     completed_trades: completedTrades,
     trade_completion_rate: rate(completedTrades, validTradeProposals),
     acceptance_rate: rate(acceptedProposals, validTradeProposals),
@@ -651,6 +986,16 @@ function computeMetrics(events, agentCalls, invalidAgentOutputs) {
     invalid_agent_outputs: invalidAgentOutputs,
     agent_calls: agentCalls,
     invalid_output_rate: rate(invalidAgentOutputs, agentCalls),
+    recommendation_decisions: recommendationDecisions,
+    recommendation_agreements: recommendationAgreements,
+    recommendation_agreement_rate: rate(recommendationAgreements, recommendationDecisions),
+    positive_utility_decisions: positiveUtilityDecisions,
+    positive_utility_acceptances: positiveUtilityAcceptances,
+    positive_utility_acceptance_rate: rate(positiveUtilityAcceptances, positiveUtilityDecisions),
+    negative_utility_decisions: negativeUtilityDecisions,
+    negative_utility_acceptances: negativeUtilityAcceptances,
+    negative_utility_acceptance_rate: rate(negativeUtilityAcceptances, negativeUtilityDecisions),
+    high_trust_vague_distrust_rejections: highTrustVagueDistrustRejections,
   };
 }
 
@@ -713,6 +1058,18 @@ function hashSeed(seed) {
 
 function rate(numerator, denominator) {
   return denominator === 0 ? 0 : numerator / denominator;
+}
+
+function clamp01(value) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.min(1, Math.max(0, value));
+}
+
+function roundTo(value, places) {
+  const factor = 10 ** places;
+  return Math.round((value + Number.EPSILON) * factor) / factor;
 }
 
 function isPlainObject(value) {

@@ -1,5 +1,7 @@
 # Economic Sandbox MVP Completion Implementation Plan
 
+Status: historical implementation plan. The MVP completion work is done and the product has since expanded into the completed visual economic sandbox roadmap. Use `ROADMAP.md` and `SIMULATION_CONTRACT.md` for current product direction.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Turn the current simulation core into a usable first sandbox with automatic proposals, replay data, optional agent extension points, and a local browser UI.

@@ -1,5 +1,7 @@
 # LongCat React Product Layer Implementation Plan
 
+Status: historical implementation plan. The LongCat React workbench is implemented; current agent prompts now also include continuous trust semantics and engine-computed `decision_context`. Use `ROADMAP.md` and `SIMULATION_CONTRACT.md` for current product direction.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Add LongCat-backed structured agents and migrate the static UI to a clear React experiment workbench with trust scanning, comparison, replay controls, saved runs, and browser QA.

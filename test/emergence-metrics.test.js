@@ -74,6 +74,7 @@ test("bounded macro and resource metrics stay within zero and one", () => {
   const boundedResourceFields = [
     "acceptance_breadth",
     "acceptance_context_diversity",
+    "exchange_role_score",
     "pass_through_rate",
     "non_consumption_holding",
     "search_cost_reduction_after_acceptance",
@@ -116,13 +117,65 @@ test("no-proposal metrics are finite", () => {
   }
 });
 
-function createMetricAgent(id, productionType) {
+test("resource exchange role score combines behavioral acceptance signals", () => {
+  const run = {
+    events: [
+      {
+        type: "proposal_created",
+        turn: 1,
+        proposal_id: "p1",
+        from_agent: "agent_01",
+        to_agent: "agent_02",
+        offered_resource: "beads",
+        requested_resource: "fish",
+      },
+      {
+        type: "proposal_accepted",
+        turn: 1,
+        proposal_id: "p1",
+      },
+      {
+        type: "proposal_created",
+        turn: 2,
+        proposal_id: "p2",
+        from_agent: "agent_02",
+        to_agent: "agent_03",
+        offered_resource: "beads",
+        requested_resource: "water",
+      },
+      {
+        type: "proposal_accepted",
+        turn: 2,
+        proposal_id: "p2",
+      },
+    ],
+    world: {
+      config: { resources: ["fish", "water", "beads"] },
+      agents: [
+        createMetricAgent("agent_01", "fish", { beads: 0 }),
+        createMetricAgent("agent_02", "water", { beads: 0 }),
+        createMetricAgent("agent_03", "water", { beads: 2 }),
+      ],
+    },
+  };
+
+  const metrics = buildEmergenceMetrics(run);
+
+  assert.equal(metrics.resources.beads.exchange_role_score > metrics.resources.fish.exchange_role_score, true);
+  assert.equal(metrics.resources.beads.pass_through_rate > 0, true);
+});
+
+function createMetricAgent(id, productionType, extraInventory = {}) {
+  return createMetricAgentWithInventory(id, productionType, extraInventory);
+}
+
+function createMetricAgentWithInventory(id, productionType, extraInventory = {}) {
   return {
     id,
     archetype: "trader",
     production_type: productionType,
-    inventory: { fish: productionType === "fish" ? 3 : 0, water: productionType === "water" ? 3 : 0 },
-    needs: { fish: productionType === "fish" ? 0 : 1, water: productionType === "water" ? 0 : 1 },
+    inventory: { fish: productionType === "fish" ? 3 : 0, water: productionType === "water" ? 3 : 0, ...extraInventory },
+    needs: { fish: productionType === "fish" ? 0 : 1, water: productionType === "water" ? 0 : 1, beads: 0 },
     unmet_need: 0,
   };
 }

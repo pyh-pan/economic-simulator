@@ -1,5 +1,7 @@
 # AI Turn Simulation Implementation Plan
 
+Status: historical implementation plan. The turn-based simulation session API and React controls are implemented; current snapshots also expose proposal decision context and ledger agreement. Use `ROADMAP.md` and `SIMULATION_CONTRACT.md` for current product direction.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Replace immediate final-result recomputation with click-to-run AI/NPC-driven turn simulation that supports manual step and auto progression.

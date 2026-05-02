@@ -210,7 +210,7 @@ button:disabled {
 .metrics {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  grid-template-columns: repeat(5, minmax(120px, 1fr));
   gap: 10px;
 }
 
@@ -308,7 +308,8 @@ button:disabled {
 }
 
 .proposal-card,
-.decision-card {
+.decision-card,
+.ledger-card {
   border: 1px solid var(--line);
   background: white;
   padding: 12px;
@@ -334,6 +335,106 @@ button:disabled {
 
 .decision-card.rejected {
   border-left: 5px solid var(--red);
+}
+
+.ledger-card {
+  background:
+    linear-gradient(rgba(29, 118, 87, 0.045) 1px, transparent 1px),
+    white;
+  background-size: 100% 28px;
+}
+
+.ledger-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.ledger-head span,
+.ledger-resource span,
+.ledger-row span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.ledger-head strong {
+  border: 1px solid currentColor;
+  padding: 3px 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.accept-text { color: var(--green); }
+.reject-text { color: var(--red); }
+
+.ledger-flow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.agreement-line {
+  margin: 8px 0 0;
+  color: var(--green);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.exchange-line {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.agreement-line.diverged {
+  color: var(--red);
+}
+
+.ledger-resource {
+  border: 1px solid var(--line);
+  background: #fbf5e6;
+  padding: 9px;
+}
+
+.ledger-resource strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 14px;
+}
+
+.ledger-resource p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.ledger-rows {
+  margin-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.ledger-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+  min-height: 28px;
+  border-bottom: 1px solid rgba(199, 189, 164, 0.65);
+}
+
+.ledger-row strong {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 18px;
+}
+
+.net-row strong {
+  font-size: 22px;
+  color: var(--blue);
 }
 
 .error-line {
